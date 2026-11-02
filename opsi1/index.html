@@ -284,9 +284,8 @@ window.AppTelemetry = {
       var now = Date.now();
       sessionStorage.setItem(key, String(now));
       return now;
-    } catch (e) {
-      return State.temporary.passage_enter_time || Date.now();
-    }
+    } catch (e) {}
+    return State.temporary.passage_enter_time || Date.now();
   },
   formatWib: function (d) {
     try {
@@ -510,48 +509,67 @@ $(document).on(":passagestart", function () {
   State.temporary.passage_enter_time = window.AppTelemetry.getPassageEnterTime(passage());
 });
 
-/* 7. OPSI A: Client-Side DOM Cleansing & Dynamic Memory Scrambling */
-$(document).one(":storyready", function () {
-  try {
-    // 1. Musnahkan elemen <tw-storydata> dari DOM
-    var storyDataEl = document.querySelector("tw-storydata");
-    if (storyDataEl) {
-      storyDataEl.parentNode.removeChild(storyDataEl);
-    }
-    // 2. Samarkan (scramble) teks passage di memori internal Story
-    if (window.Story && Story.getAll) {
-      var allP = Story.getAll();
-      for (var i = 0; i < allP.length; i++) {
-        var p = allP[i];
-        if (p.title !== "Start" && p.title !== "StoryTitle" && p.title !== "StoryData" && p.title !== "PassageHeader") {
-          p._originalSource = p.source;
-          // Scramble string di memori agar jika dicetak di konsol tidak terbaca
-          p.source = btoa(encodeURIComponent(p.source));
+/* 7. OPSI A: Client-Side DOM Cleansing & Dynamic Memory Scrambling (Kompatibel SugarCube v2) */
+(function () {
+  var _vault = Object.create(null);
+  var _protectedNames = {
+    "Start": true,
+    "StoryTitle": true,
+    "StoryData": true,
+    "StoryInit": true,
+    "PassageHeader": true,
+    "PassageFooter": true
+  };
+
+  $(document).one(":storyready", function () {
+    try {
+      /* 1. Hapus elemen <tw-storydata> dari pohon DOM */
+      var storyDataEl = document.querySelector("tw-storydata");
+      if (storyDataEl && storyDataEl.parentNode) {
+        storyDataEl.parentNode.removeChild(storyDataEl);
+      }
+      /* 2. Enkripsi teks di dalam node element tiap passage menggunakan Story.filter */
+      if (window.Story && typeof Story.filter === "function") {
+        var allPassages = Story.filter(function () { return true; });
+        for (var i = 0; i < allPassages.length; i++) {
+          var p = allPassages[i];
+          var pName = p.name || p.title;
+          if (!_protectedNames[pName] && p.element && p.element.textContent) {
+            _vault[pName] = btoa(encodeURIComponent(p.element.textContent));
+            p.element.textContent = "[Protected]";
+          }
         }
       }
-    }
-  } catch (e) {}
-});
+    } catch (e) {}
+  });
 
-// Dekripsi dinamis tepat sebelum passage dimuat di layar
-$(document).on(":passagestart", function (ev) {
-  try {
-    var p = ev.passage;
-    if (p && p._originalSource) {
-      p.source = p._originalSource;
-    }
-  } catch (e) {}
-});
+  /* Dekripsi dinamis tepat sebelum passage dirender oleh SugarCube */
+  $(document).on(":passagestart", function (ev) {
+    try {
+      var p = ev.passage || (ev.detail && ev.detail.passage);
+      if (p && p.element) {
+        var pName = p.name || p.title;
+        if (_vault[pName]) {
+          p.element.textContent = decodeURIComponent(atob(_vault[pName]));
+        }
+      }
+    } catch (e) {}
+  });
 
-// Bersihkan kembali dari memori setelah passage ditinggalkan
-$(document).on(":passageend", function (ev) {
-  try {
-    var p = ev.passage;
-    if (p && p._originalSource && p.title !== "Start") {
-      p.source = "[Passage Completed - Memory Purged]";
-    }
-  } catch (e) {}
-});</script><tw-passagedata pid="1" name="PassageHeader" tags="" position="25,25" size="100,100">&lt;div class=&quot;header-bar&quot;&gt;
+  /* Hapus dari memori setelah passage selesai dirender ke layar */
+  $(document).on(":passageend", function (ev) {
+    try {
+      var p = ev.passage || (ev.detail && ev.detail.passage);
+      if (p && p.element) {
+        var pName = p.name || p.title;
+        if (!_protectedNames[pName] && _vault[pName]) {
+          p.element.textContent = "[Passage Completed - Memory Purged]";
+          delete _vault[pName];
+        }
+      }
+    } catch (e) {}
+  });
+})();</script><tw-passagedata pid="1" name="PassageHeader" tags="" position="25,25" size="100,100">&lt;div class=&quot;header-bar&quot;&gt;
   &lt;div class=&quot;hud-group&quot;&gt;
     &lt;span style=&quot;font-size: 0.85em; color: #94A3B8; font-weight: 600;&quot;&gt;Pos Lapangan Lembah Barat&lt;/span&gt;
   &lt;/div&gt;
@@ -563,7 +581,7 @@ $(document).on(":passageend", function (ev) {
 &lt;&lt;set $start_time_wib to &quot;&quot;&gt;&gt;
 &lt;&lt;set $end_time_wib to &quot;&quot;&gt;&gt;
 
-/* Webhook Google Spreadsheet Aktif */
+/* Webhook Google Spreadsheet Aktif (Disamakan dengan URL Base yang sudah berjalan) */
 &lt;&lt;set $spreadsheet_webhook_url to &quot;https://script.google.com/macros/s/AKfycbypELl9mH1v2Ozo7z_5ZZv0PYIiuHgD1xG30-ydzp3Lj4SkAWnd7gKHp-zmiOBXO_cSwg/exec&quot;&gt;&gt;
 
 /* Otorisasi Token 100% Mengandalkan Google Spreadsheet (Tab: Daftar_Token) */
