@@ -136,9 +136,25 @@ hr {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-bottom: 8px;
   padding-bottom: 6px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.hud-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.hud-pill {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #CBD5E1;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.78em;
 }
 .btn-audio-toggle {
   background: rgba(255, 255, 255, 0.08);
@@ -148,6 +164,7 @@ hr {
   padding: 3px 12px;
   font-size: 0.82em;
   cursor: pointer;
+  transition: all 0.2s ease;
 }
 .btn-audio-toggle:hover {
   background: rgba(129, 212, 250, 0.2);
@@ -190,6 +207,7 @@ hr {
   border-radius: 6px;
   color: #E2E8F0 !important;
   text-decoration: none !important;
+  transition: all 0.15s ease-in-out;
   line-height: 1.35;
 }
 .options-list a:hover {
@@ -235,6 +253,18 @@ window.AppTelemetry = {
         }
       }
     } catch (e) {}
+  },
+  getPassageEnterTime: function (pName) {
+    try {
+      var sk = State.variables.session_key || "anon";
+      var key = "jc_enter_" + sk + "_" + pName;
+      var saved = sessionStorage.getItem(key);
+      if (saved) return Number(saved);
+      var now = Date.now();
+      sessionStorage.setItem(key, String(now));
+      return now;
+    } catch (e) {}
+    return Date.now();
   },
   formatWib: function (d) {
     try {
@@ -331,6 +361,39 @@ window.AppTelemetry = {
       });
     });
   },
+  /* Pembersih duplikasi teks & evaluator makro ringan untuk Opsi B Headless */
+  resolveAndCleanText: function (rawText) {
+    if (!rawText) return "";
+    var txt = String(rawText);
+    var v = State.variables;
+
+    /* 1. Jika data Bank_Soal masih menyimpan sisa teks konsekuensi tanpa pembuka <<if>> sebelum <<else>> */
+    var elseIdx = txt.indexOf("<<else>>");
+    if (elseIdx !== -1) {
+      var beforeElse = txt.substring(0, elseIdx);
+      if (beforeElse.indexOf("<<if") === -1) {
+        var closeIfIdx = txt.indexOf("<</if>>");
+        if (closeIfIdx !== -1 && closeIfIdx > elseIdx) {
+          var afterClose = txt.substring(closeIfIdx + 7);
+          txt = afterClose.replace(/^(\s*<\/p>)?\s*(<p>)?\s*/i, "");
+        }
+      }
+    }
+
+    /* 2. Evaluasi kondisi <<if $f1_choice is 1>>...<<else>>...<</if>> pada P1_F2 */
+    txt = txt.replace(/<<if\s+\$f1_choice\s+is\s+1>>([\s\S]*?)<<else>>([\s\S]*?)<<\/if>>/g, function (_, branch1, branch2) {
+      return (v.f1_choice === 1) ? branch1 : branch2;
+    });
+
+    /* 3. Evaluasi kondisi <<if $f3_choice is 1>>...<<elseif $f3_choice is 2>>...<</if>> pada P2_B3 */
+    txt = txt.replace(/<<if\s+\$f3_choice\s+is\s+1>>([\s\S]*?)<<elseif\s+\$f3_choice\s+is\s+2>>([\s\S]*?)<<\/if>>/g, function (_, branch1, branch2) {
+      if (v.f3_choice === 1) return branch1;
+      if (v.f3_choice === 2) return branch2;
+      return "";
+    });
+
+    return txt.replace(/\s*<\/p>\s*$/i, "");
+  },
   toggleAudio: function () {
     try {
       var track = SimpleAudio.tracks.get("bgm");
@@ -422,7 +485,9 @@ setInterval(function () {
 $(document).on(":passagestart", function () {
   window.AppTelemetry.init();
 });</script><tw-passagedata pid="1" name="PassageHeader" tags="" position="25,25" size="100,100">&lt;div class=&quot;header-bar&quot;&gt;
-  &lt;span style=&quot;font-size: 0.85em; color: #94A3B8; font-weight: 600;&quot;&gt;Pos Lapangan Lembah Barat&lt;/span&gt;
+  &lt;div class=&quot;hud-group&quot;&gt;
+    &lt;span style=&quot;font-size: 0.85em; color: #94A3B8; font-weight: 600;&quot;&gt;Pos Lapangan Lembah Barat&lt;/span&gt;
+  &lt;/div&gt;
   &lt;button type=&quot;button&quot; class=&quot;btn-audio-toggle&quot; onclick=&quot;window.AppTelemetry.toggleAudio()&quot;&gt;🔊 / 🔇 Musik&lt;/button&gt;
 &lt;/div&gt;</tw-passagedata><tw-passagedata pid="2" name="StoryInit" tags="" position="150,25" size="100,100">&lt;&lt;set $user_id to &quot;&quot;&gt;&gt;
 &lt;&lt;set $user_token to &quot;&quot;&gt;&gt;
@@ -432,6 +497,7 @@ $(document).on(":passagestart", function () {
 &lt;&lt;set $start_time_wib to &quot;&quot;&gt;&gt;
 &lt;&lt;set $end_time_wib to &quot;&quot;&gt;&gt;
 
+/* URL Webhook Google Apps Script Deployment Opsi B */
 &lt;&lt;set $spreadsheet_webhook_url to &quot;https://script.google.com/macros/s/AKfycbx0VMFkQuiNE0PSlxuZRLvExebdrvuzKz17rIDvMlG4DuFGesyR118-6SfShZ6QWfvrJw/exec&quot;&gt;&gt;
 
 &lt;&lt;cacheaudio &quot;bgm&quot; &quot;https://cdn.jsdelivr.net/gh/jacarandaconsultant/twine@main/Maps_on_the_Pine_Desk.mp3&quot;&gt;&gt;
@@ -502,36 +568,35 @@ $(document).on(":passagestart", function () {
       var webhook = State.variables.spreadsheet_webhook_url;
 
       if (!webhook || webhook === &quot;URL_GOOGLE_APPS_SCRIPT_DI_SINI&quot;) {
-        UI.alert(&quot;URL Webhook Google Apps Script belum disetel.&quot;);
-        return;
-      }
-
-      $(&quot;#start-status&quot;).text(&quot;Memverifikasi Token Akses ke server panitia...&quot;);
-      fetch(webhook + &quot;?action=verify_token&amp;token=&quot; + encodeURIComponent(tok) + &quot;&amp;user_id=&quot; + encodeURIComponent(uid))
-        .then(function (r) { return r.json(); })
-        .then(function (res) {
-          if (res &amp;&amp; res.valid) {
-            State.variables.user_id = uid;
-            State.variables.user_token = tok;
-            State.variables.start_time = Date.now();
-            State.variables.start_time_wib = window.AppTelemetry.formatWib(new Date());
-            State.variables.session_key = uid.replace(/\s+/g, &quot;_&quot;) + &quot;_&quot; + State.variables.start_time;
-            State.variables.current_passage_id = &quot;P1_B1&quot;;
-            try {
-              var trk = SimpleAudio.tracks.get(&quot;bgm&quot;);
-              if (trk) { trk.volume(0.35); trk.loop(true); trk.play(); }
-            } catch (e) {}
-            window.AppTelemetry.syncToSheet(&quot;Mulai Penugasan (0/20)&quot;, &quot;Start&quot;, false);
-            Engine.play(&quot;Play&quot;);
-          } else {
+        UI.alert(&quot;URL Webhook Google Apps Script belum disetel pada variabel $spreadsheet_webhook_url.&quot;);
+      } else {
+        $(&quot;#start-status&quot;).text(&quot;Memverifikasi Token Akses ke server panitia...&quot;);
+        fetch(webhook + &quot;?action=verify_token&amp;token=&quot; + encodeURIComponent(tok) + &quot;&amp;user_id=&quot; + encodeURIComponent(uid))
+          .then(function (r) { return r.json(); })
+          .then(function (res) {
+            if (res &amp;&amp; res.valid) {
+              State.variables.user_id = uid;
+              State.variables.user_token = tok;
+              State.variables.start_time = Date.now();
+              State.variables.start_time_wib = window.AppTelemetry.formatWib(new Date());
+              State.variables.session_key = uid.replace(/\s+/g, &quot;_&quot;) + &quot;_&quot; + State.variables.start_time;
+              State.variables.current_passage_id = &quot;P1_B1&quot;;
+              try {
+                var trk = SimpleAudio.tracks.get(&quot;bgm&quot;);
+                if (trk) { trk.volume(0.35); trk.loop(true); trk.play(); }
+              } catch (e) {}
+              window.AppTelemetry.syncToSheet(&quot;Mulai Penugasan (0/20)&quot;, &quot;Start&quot;, false);
+              Engine.play(&quot;Play&quot;);
+            } else {
+              $(&quot;#start-status&quot;).text(&quot;&quot;);
+              UI.alert((res &amp;&amp; res.message) ? res.message : &quot;Token Akses tidak valid atau sudah penuh.&quot;);
+            }
+          })
+          .catch(function () {
             $(&quot;#start-status&quot;).text(&quot;&quot;);
-            UI.alert((res &amp;&amp; res.message) ? res.message : &quot;Token Akses tidak valid atau sudah penuh.&quot;);
-          }
-        })
-        .catch(function () {
-          $(&quot;#start-status&quot;).text(&quot;&quot;);
-          UI.alert(&quot;Gagal menghubungi server panitia untuk verifikasi token.&quot;);
-        });
+            UI.alert(&quot;Gagal menghubungi server panitia untuk verifikasi token. Periksa koneksi internet Anda.&quot;);
+          });
+      }
     &lt;&lt;/script&gt;&gt;
   &lt;&lt;/if&gt;&gt;
 &lt;&lt;/link&gt;&gt;
@@ -551,17 +616,24 @@ $(document).one(&quot;:passageend&quot;, function () {
     .then(function (r) { return r.json(); })
     .then(function (sc) {
       if (!sc || sc.error) {
-        $(&quot;#play-container&quot;).html(&quot;&lt;p style=&#39;color:#f87171;&#39;&gt;Gagal memuat babak dari server: &quot; + (sc ? sc.error : &quot;Unknown&quot;) + &quot;&lt;/p&gt;&quot;);
+        $(&quot;#play-container&quot;).html(&quot;&lt;p style=&#39;color:#f87171;&#39;&gt;Gagal memuat babak dari server: &quot; + (sc ? sc.error : &quot;Unknown&quot;) + &quot;&lt;/p&gt;&lt;p&gt;&lt;a href=&#39;javascript:void(0)&#39; id=&#39;btn-retry-play&#39; style=&#39;color:#38BDF8;&#39;&gt;🔄 Coba Muat Ulang&lt;/a&gt;&lt;/p&gt;&quot;);
+        $(&quot;#btn-retry-play&quot;).on(&quot;click&quot;, function () { Engine.play(&quot;Play&quot;); });
         return;
       }
 
-      var passageEnterTime = Date.now();
+      if (!Array.isArray(sc.options)) {
+        $(&quot;#play-container&quot;).html(&quot;&lt;p style=&#39;color:#f87171;&#39;&gt;&lt;strong&gt;Format respons babak tidak valid dari server.&lt;/strong&gt;&lt;br&gt;Pastikan URL Webhook Google Apps Script telah diperbarui ke deployment &lt;em&gt;Code_v1_1_01_OPSI_B.gs&lt;/em&gt; yang mendukung endpoint &lt;code&gt;action=get_passage&lt;/code&gt; dan tab &lt;code&gt;Bank_Soal&lt;/code&gt;.&lt;/p&gt;&lt;p&gt;&lt;a href=&#39;javascript:void(0)&#39; id=&#39;btn-retry-play&#39; style=&#39;color:#38BDF8;&#39;&gt;🔄 Coba Muat Ulang&lt;/a&gt;&lt;/p&gt;&quot;);
+        $(&quot;#btn-retry-play&quot;).on(&quot;click&quot;, function () { Engine.play(&quot;Play&quot;); });
+        return;
+      }
+
+      var passageEnterTime = window.AppTelemetry.getPassageEnterTime(pid);
       var html = [];
 
       html.push(&#39;&lt;div class=&quot;scene-banner&quot;&gt;&lt;img src=&quot;&#39; + sc.img + &#39;&quot; alt=&quot;&#39; + sc.alt + &#39;&quot;&gt;&lt;/div&gt;&#39;);
       html.push(&#39;&lt;div class=&quot;time-badge&quot;&gt;&#39; + sc.badge + &#39;&lt;/div&gt;&#39;);
 
-      // Cek konsekuensi
+      // Cek konsekuensi dari babak sebelumnya
       if (sc.conseq_chk) {
         var scoreVal = v[sc.conseq_chk] || 0;
         if (scoreVal &gt;= 3) {
@@ -571,10 +643,17 @@ $(document).one(&quot;:passageend&quot;, function () {
         }
       }
 
-      html.push(&#39;&lt;p&gt;&#39; + sc.problem + &#39;&lt;/p&gt;&#39;);
+      // Bersihkan teks problem dari sisa duplikasi konsekuensi dan evaluasi makro
+      var cleanProblem = window.AppTelemetry.resolveAndCleanText(sc.problem);
+      if (cleanProblem.indexOf(&quot;&lt;p&gt;&quot;) === -1) {
+        html.push(&#39;&lt;p&gt;&#39; + cleanProblem + &#39;&lt;/p&gt;&#39;);
+      } else {
+        html.push(cleanProblem);
+      }
+
       html.push(&#39;&lt;p&gt;&lt;strong&gt;&#39; + sc.question + &#39;&lt;/strong&gt;&lt;/p&gt;&#39;);
 
-      // Acak opsi
+      // Acak urutan opsi jawaban
       var shuffledOpts = sc.options.slice();
       for (var i = shuffledOpts.length - 1; i &gt; 0; i--) {
         var j = Math.floor(Math.random() * (i + 1));
@@ -591,15 +670,18 @@ $(document).one(&quot;:passageend&quot;, function () {
 
       $(&quot;#play-container&quot;).html(html.join(&quot;&quot;));
 
-      // Event click tombol opsi
+      // Event listener tombol opsi jawaban
       $(&quot;.btn-play-opt&quot;).on(&quot;click&quot;, function () {
         var idx = Number($(this).attr(&quot;data-idx&quot;));
         var chosen = shuffledOpts[idx];
         var dur = Math.max(1, Math.round((Date.now() - passageEnterTime) / 1000));
-        
+
         v.latency[sc.var] = dur;
         if (sc.dim !== &quot;Filler&quot;) {
-          if (dur &lt; 3) v.telemetry.rapid_answers += 1;
+          if (dur &lt; 3) {
+            v.telemetry.rapid_answers += 1;
+            window.AppTelemetry.logViolation(&quot;JAWAB_KILAT_ANOMALI&quot;, &quot;Menjawab soal SJT terlalu cepat (&quot; + dur + &quot; detik)&quot;);
+          }
           v[sc.var + &quot;_score&quot;] = chosen.score;
         } else {
           v[sc.var + &quot;_choice&quot;] = chosen.score;
@@ -616,7 +698,10 @@ $(document).one(&quot;:passageend&quot;, function () {
       });
     })
     .catch(function (err) {
-      $(&quot;#play-container&quot;).html(&quot;&lt;p style=&#39;color:#f87171;&#39;&gt;Gagal memuat soal dari server. Periksa koneksi internet Anda lalu &lt;a href=&#39;javascript:void(0)&#39; onclick=&#39;Engine.play(&quot;Play&quot;)&#39;&gt;klik di sini untuk coba lagi&lt;/a&gt;.&lt;/p&gt;&quot;);
+      $(&quot;#play-container&quot;).html(&quot;&lt;p style=&#39;color:#f87171;&#39;&gt;Gagal memuat soal dari server. Periksa koneksi internet Anda lalu &lt;a href=&#39;javascript:void(0)&#39; id=&#39;btn-retry-play&#39; style=&#39;color:#38BDF8;&#39;&gt;klik di sini untuk coba lagi&lt;/a&gt;.&lt;/p&gt;&quot;);
+      $(&quot;#btn-retry-play&quot;).on(&quot;click&quot;, function () {
+        Engine.play(&quot;Play&quot;);
+      });
     });
 });
 &lt;&lt;/script&gt;&gt;</tw-passagedata><tw-passagedata pid="5" name="Epilog" tags="" position="525,25" size="100,100">&lt;div class=&quot;scene-banner&quot;&gt;&lt;img src=&quot;https://lh3.googleusercontent.com/d/1N1Pq2LvelMnvgslY0FTPUYV5uIHpVaT5&quot; alt=&quot;Epilog Lembah Barat&quot;&gt;&lt;/div&gt;
